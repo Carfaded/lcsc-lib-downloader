@@ -1,0 +1,30 @@
+# 打包产物
+dist/
+build/
+*.spec
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+
+# 测试与运行产物
+selftest_out/
+selftest_result.txt
+gui_test_out/
+cli_test_out/
+error_log.txt
+*.log
+
+# 本地研究资料（含抓取的第三方文件，不随仓库分发）
+research/
+
+# 下载示例（体积大，按需生成）
+step/
+
+# 编辑器/系统
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini

@@ -1,0 +1,49 @@
+LCSC3D 精简集成说明（第三方代码来源与许可）
+================================================
+
+本目录（lcsc3d/）内置了 LCSC3D 项目的部分源码，用于将立创商城/立创EDA
+的官方器件数据转换为 Altium Designer 原生库文件（.SchLib / .PcbLib）。
+
+上游项目
+--------
+  LCSC3D
+  仓库: https://github.com/Travelerrrrrr/LCSC3D
+  许可: GNU Affero General Public License v3.0 (AGPL-3.0)
+  完整许可文本见本目录 LICENSE 文件。
+
+包含的上游文件（未修改）
+------------------------
+  core/errors.py
+  eda/altium.py            （SchLib/PcbLib 记录封装与导出入口）
+  eda/altium_ir.py         （EDA IR -> AD 记录转换）
+  eda/altium_models.py     （3D 模型内嵌: zlib 压缩 STEP + Models 流 + BODY 记录）
+  eda/compound_storage.py  （Windows OLE 复合文件写入）
+  eda/easyeda_import.py    （立创/嘉立创标准格式解析）
+  eda/eda_geometry.py
+  eda/eda_ir.py
+  eda/eda_targets.py
+  eda/symbol_style.py
+  models/model3d.py
+  models/model_export.py   （模型放置解析: 变换矩阵/资源校验）
+  models/model_geometry.py （OBJ 基准点与欧拉角换算）
+  models/model_cache.py    （单次导出内的资源复用缓存）
+
+被替换的文件
+------------
+  core/app_logging.py      原文件依赖文件日志与 GUI；已替换为同接口的
+                           轻量替身（无副作用），替代件中已注明。
+
+使用方式与限制
+--------------
+  · 本集成仅调用单器件导出路径（export_schlib / export_pcblib）。
+  · 多器件合并库、KiCad 导出等未包含。
+  · 3D 模型内嵌（embed_models）已包含：调用方先获取官方 STEP/OBJ
+    资源并经 resolve_models 解析放置参数后传入 model_assets。
+  · 未获取模型资源时，调用方会剥离模型信息（models=()），
+    以避免因缺少模型资源文件导致的导出失败。
+
+许可义务提示
+------------
+  AGPL-3.0 为强著佐权许可。分发包含本目录的整体软件（含打包后的
+  exe）时，需按 AGPL-3.0 提供完整对应源代码，并保留本说明与
+  LICENSE 文件。仅个人本地使用不受分发条款约束。

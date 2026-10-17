@@ -4,7 +4,7 @@
 
 **一个免安装小工具，输入立创编号，一次拿到 4 类文件，还能直接生成 Altium Designer 原生库。**
 
-![主界面](上传图片1：docs/screenshots/ui.png)
+**【📷 图片位置 1 —— 请删除本行，插入图片：docs/csdn-image-1-ui.png】**
 
 ---
 
@@ -90,7 +90,7 @@ LCSC3D.PcbLib    # 一个文件，含全部封装（相同封装自动去重）
 
 从项目 Releases 下载 `立创3D封装下载器.exe`，双击运行，**不需要装任何环境**。
 
-![手动合并库对话框](上传图片2：docs/screenshots/merge_dialog.png)
+**【📷 图片位置 2 —— 请删除本行，插入图片：docs/csdn-image-2-merge.png】**
 
 > 💡 **发布提示**：本文有两处图片，发布前需上传到 CSDN 获得图片链接——
 > 图片1：`docs/screenshots/ui.png`（主界面）

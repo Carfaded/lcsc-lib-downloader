@@ -2,12 +2,16 @@
 
 [![GitHub](https://img.shields.io/badge/GitHub-Carfaded/lcsc--lib--downloader-181717?style=for-the-badge&logo=github)](https://github.com/Carfaded/lcsc-lib-downloader)
 [![Gitee](https://img.shields.io/badge/Gitee-DunnPP/lcsc--lib--downloader-C71D1D?style=for-the-badge&logo=gitee)](https://gitee.com/DunnPP/lcsc-lib-downloader)
+[![CSDN](https://img.shields.io/badge/CSDN-技术博客-FC5539?style=for-the-badge&logo=csdn)](https://blog.csdn.net/weixin_38307646/article/details/168249381)
 [![License](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](LICENSE)
 [![Release](https://img.shields.io/badge/Release-v1.2.0-success?style=for-the-badge)](https://github.com/Carfaded/lcsc-lib-downloader/releases)
 
 > **一个编号，四类文件** —— 3D 模型(STEP) · 原理图符号 · PCB 封装 · Altium 原生库(SchLib / PcbLib，可内嵌 3D)
 >
 > 免安装单文件 exe，带图形界面；纯 Python 标准库实现，支持批量下载、断点续传与风控重试。
+
+📖 **技术详解（含 API 逆向 / AD 二进制格式 / 3D 内嵌原理）** →
+[《立创商城元件库批量下载工具：3D模型/原理图符号/PCB封装/AD原生库一键生成（含3D内嵌）》](https://blog.csdn.net/weixin_38307646/article/details/168249381)
 
 ![界面预览](docs/screenshots/ui.png)
 
@@ -140,6 +144,11 @@ pyinstaller --onefile --noconsole --clean --name lcsc3d_gui \
 - **验证方法**：用独立解析器（olefile）反向读取生成的库，校验引脚数/焊盘数/内嵌模型解压比对；exe 在「最小 PATH + 清空 PYTHON 变量」环境下自测通过。
 
 详细的技术拆解见：[docs/blog.md](docs/blog.md)。
+
+## 📢 媒体报道与技术文章
+
+- 📖 [CSDN 技术博客（完整技术拆解）](https://blog.csdn.net/weixin_38307646/article/details/168249381) —— 立创 API 逆向、风控对抗、STEP 几何校验、AD 二进制格式生成与 3D 内嵌全解析
+- 📄 仓库内文档：[docs/blog.md](docs/blog.md) · [docs/csdn-blog.md](docs/csdn-blog.md)
 
 ## ❓ 常见问题
 

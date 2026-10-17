@@ -1,5 +1,10 @@
 # 立创商城元件库批量下载器（LCSC Lib Downloader）
 
+[![GitHub](https://img.shields.io/badge/GitHub-Carfaded/lcsc--lib--downloader-181717?style=for-the-badge&logo=github)](https://github.com/Carfaded/lcsc-lib-downloader)
+[![Gitee](https://img.shields.io/badge/Gitee-DunnPP/lcsc--lib--downloader-C71D1D?style=for-the-badge&logo=gitee)](https://gitee.com/DunnPP/lcsc-lib-downloader)
+[![License](https://img.shields.io/badge/License-AGPL--3.0-blue.svg)](LICENSE)
+[![Release](https://img.shields.io/badge/Release-v1.2.0-success?style=for-the-badge)](https://github.com/Carfaded/lcsc-lib-downloader/releases)
+
 > **一个编号，四类文件** —— 3D 模型(STEP) · 原理图符号 · PCB 封装 · Altium 原生库(SchLib / PcbLib，可内嵌 3D)
 >
 > 免安装单文件 exe，带图形界面；纯 Python 标准库实现，支持批量下载、断点续传与风控重试。
@@ -28,7 +33,7 @@
 
 ### 方式一：下载 exe（推荐）
 
-到 [Releases](../../releases) 下载 `立创3D封装下载器.exe`，双击运行：
+到 [Releases](https://github.com/Carfaded/lcsc-lib-downloader/releases) 下载 `lcsc-lib-downloader-v1.2.0.exe`，双击运行：
 
 1. 在文本框粘贴立创编号（如 `C131443`，一行一个）；
 2. 选择保存路径（默认 exe 同级 `step\` 目录）；

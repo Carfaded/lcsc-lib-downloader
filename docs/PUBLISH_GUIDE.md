@@ -128,7 +128,7 @@ git push origin main --tags
 2. 标签选 `v1.2.0`
 3. 标题：`v1.2.0 - AD库合并 + 手动合并库 + 日志清理`
 4. 描述：粘贴 `docs/RELEASE_NOTES.md` 内容
-5. 上传附件：`dist\立创3D封装下载器.exe`
+5. 上传附件：`dist\立创3D封装下载器.exe（上传时建议改名 lcsc-lib-downloader-v1.2.0.exe）`
 6. 发布
 
 ### GitHub
@@ -137,7 +137,7 @@ git push origin main --tags
 2. 选择标签 `v1.2.0`
 3. 标题：`v1.2.0 - AD库合并 + 手动合并库 + 日志清理`
 4. 描述：粘贴 `docs/RELEASE_NOTES.md` 内容
-5. 上传 `立创3D封装下载器.exe`
+5. 上传 `lcsc-lib-downloader-v1.2.0.exe`
 6. **Publish release**
 
 ---

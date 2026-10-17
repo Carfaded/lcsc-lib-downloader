@@ -9,7 +9,7 @@
 
 ## 下载
 
-**Windows 用户**：下载 `立创3D封装下载器.exe`，双击即用。
+**Windows 用户**：下载 `lcsc-lib-downloader-v1.2.0.exe`，双击即用。
 **无需安装 Python**，无需任何运行库，单文件即全部。
 
 > 首次运行如被杀毒软件提示（PyInstaller 打包程序的常见误报），添加信任即可。

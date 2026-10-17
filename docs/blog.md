@@ -159,7 +159,7 @@ C131443_LQFP-64_...-BL.PcbLib                  2.2 MB    AD 封装库(64焊盘+�
 
 项目已开源（**AGPL-3.0**）：
 
-- 仓库：`https://github.com/<你的用户名>/lcsc-lib-downloader`（Gitee 同步镜像）
+- 仓库：`https://github.com/Carfaded/lcsc-lib-downloader`（Gitee 同步镜像）
 - 直接下载 exe 使用，或源码运行、自行构建；
 - 由于内置了 LCSC3D 的 AGPL 转换代码，整个项目采用 AGPL-3.0 许可，来源与修改说明记录在 `lcsc3d/NOTICE.txt`。
 

@@ -386,8 +386,8 @@ PATH="/c/Windows/System32:/c/Windows" PYTHONHOME= PYTHONPATH= ./工具.exe --sel
 
 项目已开源（**AGPL-3.0**）：
 
-- **GitHub**：`<你的仓库地址>`
-- **Gitee**：`<你的仓库地址>`（国内访问更快）
+- **GitHub**：https://github.com/Carfaded/lcsc-lib-downloader
+- **Gitee**：https://gitee.com/DunnPP/lcsc-lib-downloader（国内访问更快）
 
 **功能一览**：
 

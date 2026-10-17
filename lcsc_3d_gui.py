@@ -401,6 +401,7 @@ class DownloaderApp:
         self.v_fp = tk.BooleanVar(value=True)
         self.v_ad = tk.BooleanVar(value=True)
         self.v_ad_embed = tk.BooleanVar(value=True)
+        self.v_merge = tk.BooleanVar(value=False)
         self.v_skip = tk.BooleanVar(value=True)
         self.v_verify = tk.BooleanVar(value=True)
         self._build()
@@ -511,6 +512,11 @@ class DownloaderApp:
         ttk.Checkbutton(orow, text="校验 3D 模型不含PCB", variable=self.v_verify).pack(side="left", padx=(0, 18))
         ttk.Checkbutton(orow, text="AD库内嵌3D模型", variable=self.v_ad_embed).pack(side="left")
 
+        mrow = ttk.Frame(card1)
+        mrow.grid(row=6, column=0, sticky="w", pady=(2, 2))
+        ttk.Checkbutton(mrow, text="AD库合并：多器件合并为一个库文件（LCSC3D.SchLib / LCSC3D.PcbLib）",
+                        variable=self.v_merge).pack(side="left")
+
         # ---- 操作行 ----
         act = ttk.Frame(body)
         act.grid(row=1, column=0, sticky="ew", pady=(12, 8))
@@ -558,6 +564,8 @@ class DownloaderApp:
             "  说明: 勾选\"AD库内嵌3D模型\"（默认开启）时，官方 3D STEP 会按\n"
             "  官方放置参数内嵌进 PcbLib —— AD 中打开 PcbLib 按快捷键 3\n"
             "  即可查看 3D 立体效果。\n"
+            "  多器件合并: 勾选\"AD库合并\"后，本批所有器件合并为一个\n"
+            "  LCSC3D.SchLib + LCSC3D.PcbLib（相同封装自动去重）。\n"
             "\n"
             "【备选渠道】\n"
             "  · LCSC3D 开源工具: 可把多个器件合并为一个库并内嵌 3D\n"
@@ -632,7 +640,7 @@ class DownloaderApp:
             return
         opts = {"3d": self.v_3d.get(), "symbol": self.v_sym.get(),
                 "footprint": self.v_fp.get(), "ad": self.v_ad.get(),
-                "ad_embed": self.v_ad_embed.get()}
+                "ad_embed": self.v_ad_embed.get(), "merge": self.v_merge.get()}
         if not any(opts.values()):
             messagebox.showwarning("提示", "请至少勾选一项下载内容（3D模型 / 原理图符号 / PCB封装 / AD库）")
             return
@@ -658,6 +666,18 @@ class DownloaderApp:
 
         def log(msg, tag="info"):
             q.put(("log", (msg + "\n", tag)))
+
+        # 合并模式: 批次内所有器件的 AD 库最后合并为单个 SchLib/PcbLib
+        merger = None
+        if opts.get("ad") and opts.get("merge") and ad_export is not None:
+            try:
+                merger = ad_export.AdLibraryMerger(
+                    embed_model=opts.get("ad_embed", True),
+                    fetch=lambda url: http_get_bytes(url, log),
+                    log=log)
+            except Exception as e:  # noqa: BLE001
+                log(f"    ! 合并模式不可用，改为生成单器件库（{e}）", "warn")
+                merger = None
 
         for i, code in enumerate(codes, 1):
             log(f"[{i}/{len(codes)}] {code} ...")
@@ -746,6 +766,17 @@ class DownloaderApp:
                             log("    × AD库失败: 内置转换模块不可用", "err")
                             results.append(("AD库", "fail", "模块不可用"))
                             failed.append((code, "AD库", "模块不可用"))
+                        elif merger is not None:
+                            try:
+                                minfo = merger.add(s_data.get("raw") or {}, code)
+                            except Exception as e:  # noqa: BLE001
+                                log(f"    × AD库(合并)失败: {e}", "err")
+                                results.append(("AD库", "fail", str(e)))
+                                failed.append((code, "AD库", str(e)))
+                            else:
+                                log("    √ AD库: 已加入合并库"
+                                    + ("（含3D）" if minfo.get("embedded") else ""), "ok")
+                                results.append(("AD库", "ok", f"(合并) {code}"))
                         else:
                             try:
                                 ad = ad_export.export_altium(
@@ -786,6 +817,23 @@ class DownloaderApp:
 
             q.put(("progress", (i, len(codes))))
             time.sleep(0.5)
+
+        # ---- 合并构建（批次结束后统一生成）----
+        if merger is not None and merger.parts:
+            log(f"\n  正在构建合并库（{len(merger.parts)} 个器件）...")
+            try:
+                mr = merger.build(outdir)
+            except Exception as e:  # noqa: BLE001
+                log(f"    × 合并库失败: {e}", "err")
+                stats["fail"] += 1
+                failed.append(("-", "合并库", str(e)))
+            else:
+                log(f"    ★ 合并库: {os.path.basename(mr['schlib'])} + "
+                    f"{os.path.basename(mr['pcblib'])}  [{mr['count']} 个器件 / "
+                    f"SchLib {mr['schlib_size'] / 1024:.0f}KB / "
+                    f"PcbLib {mr['pcblib_size'] / 1024:.0f}KB]", "ok")
+        elif merger is not None:
+            log("    ! 没有成功加入合并库的器件", "warn")
 
         q.put(("done", {
             "stats": stats, "code_ok": n_code_ok, "code_partial": n_code_partial,
@@ -941,6 +989,34 @@ def run_selftest(argv):
         lines.append("AD EXCEPTION: " + repr(e))
         checks["ad"] = False
         checks["ad3d"] = False
+
+    # AD 合并库 (2 器件 -> 单个 SchLib/PcbLib, 含内嵌3D)
+    try:
+        if ad_export is None:
+            raise RuntimeError("ad_export 模块不可用")
+        merger = ad_export.AdLibraryMerger(
+            embed_model=True, fetch=lambda url: http_get_bytes(url, log), log=log)
+        merger.add((s_data or {}).get("raw") or {}, code)
+        partner = next(c for c in ("C25804", "C14663") if c != code)
+        m_status, m_data = fetch_std_data(partner, log=log)
+        if m_status != "ok":
+            raise RuntimeError(f"{partner} 数据获取失败: {m_data}")
+        merger.add(m_data.get("raw") or {}, partner)
+        mr = merger.build(outdir)
+        lines.append(f"MERGE schlib={mr['schlib']} size={mr['schlib_size']}")
+        lines.append(f"MERGE pcblib={mr['pcblib']} size={mr['pcblib_size']} count={mr['count']}")
+        from lcsc3d.eda.library_merge import LibraryIndex
+        sch_idx = LibraryIndex(open(mr["schlib"], "rb").read(), "SCHLIB")
+        pcb_idx = LibraryIndex(open(mr["pcblib"], "rb").read(), "PCBLIB")
+        n_sch, n_pcb = len(sch_idx.names), len(pcb_idx.names)
+        sch_idx.ole.close()
+        pcb_idx.ole.close()
+        pcb_raw = open(mr["pcblib"], "rb").read()
+        lines.append(f"MERGE names: sch={n_sch} pcb={n_pcb}")
+        checks["ad_merge"] = (n_sch == 2 and n_pcb == 2 and b"|EMBED=TRUE" in pcb_raw)
+    except Exception as e:  # noqa: BLE001
+        lines.append("MERGE EXCEPTION: " + repr(e))
+        checks["ad_merge"] = False
 
     ok = all(checks.values())
     lines.append("checks=" + json.dumps(checks, ensure_ascii=False))

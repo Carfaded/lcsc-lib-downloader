@@ -22,11 +22,18 @@ LCSC3D 精简集成说明（第三方代码来源与许可）
   eda/eda_geometry.py
   eda/eda_ir.py
   eda/eda_targets.py
+  eda/library_merge.py     （多器件合并: 记录重写/封装去重/名称索引）
   eda/symbol_style.py
   models/model3d.py
   models/model_export.py   （模型放置解析: 变换矩阵/资源校验）
   models/model_geometry.py （OBJ 基准点与欧拉角换算）
   models/model_cache.py    （单次导出内的资源复用缓存）
+
+第三方运行库依赖
+----------------
+  olefile (https://github.com/decalage2/olefile, BSD-2-Clause)
+  仅用于 AD 库合并功能（读取/匹配已有库条目）。
+  从源码运行时需 pip install olefile；打包 exe 时会一并分发。
 
 被替换的文件
 ------------

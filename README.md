@@ -17,6 +17,7 @@
 | 📐 原理图符号 | 立创EDA 标准格式 JSON，可在立创EDA(标准版/专业版)中导入 |
 | 🧩 PCB 封装 | 立创EDA 标准格式 JSON，含焊盘/丝印/阻焊层完整数据 |
 | 🅰 AD 原生库 | 直接生成 Altium Designer 原生 `.SchLib` / `.PcbLib`（二进制格式），**可选内嵌官方 3D 模型** —— AD 中打开按快捷键 `3` 即可查看立体效果 |
+| 🔗 AD 库合并 | 多器件一键合并为**单个** `LCSC3D.SchLib` + `LCSC3D.PcbLib`：相同封装自动去重、符号自动引用最终封装名，3D 内嵌同样支持 |
 | 🛡 风控对抗 | 请求间隔控制 + 指数退避重试，被断连自动恢复；已下载文件自动跳过（断点续传） |
 | 🖥 免环境运行 | 单文件 exe，目标电脑**无需安装 Python** 及任何运行库 |
 | ⌨ 双形态 | 图形界面（GUI）+ 命令行（CLI），命令行版仅依赖标准库 |
@@ -38,6 +39,7 @@
 
 ```bash
 pip install sv_ttk          # 仅界面主题需要，可选
+pip install olefile         # 仅"AD库合并"功能需要，可选
 python lcsc_3d_gui.py
 ```
 
@@ -52,6 +54,9 @@ python lcsc_3d_downloader.py -f codes.txt -o D:\step
 
 # 只生成 AD 库（默认内嵌 3D；加 --no-ad-3d 关闭）
 python lcsc_3d_downloader.py C131443 --types ad
+
+# AD 库合并：所有器件合并为单个 LCSC3D.SchLib + LCSC3D.PcbLib
+python lcsc_3d_downloader.py -f codes.txt --merge --types ad
 
 # 只下 3D 模型 / 只下符号+封装
 python lcsc_3d_downloader.py C131443 --types 3d
@@ -83,6 +88,13 @@ python lcsc_3d_downloader.py C131443 --types symbol,footprint
 - 内嵌模型与官方源文件**逐字节一致**（zlib 压缩存储于 AD Models 流），已通过解压比对验证；
 - 不需要内嵌时关闭该选项即可获得更小的 PcbLib（示例：106 KB vs 2.2 MB）。
 
+**关于合并库（多器件）**：
+
+- 勾选「AD库合并」后不再生成单器件库文件，批次内所有器件合并为 `LCSC3D.SchLib` + `LCSC3D.PcbLib`；
+- 相同封装自动去重（多个 0603 电阻共用同一个 R0603 封装条目），符号的 Footprint 引用自动指向最终封装名；
+- 合并库由**本次批次的编号**构成，重复运行会整体重建（如需累积，请一次传入全部编号）；
+- 输出文件名固定为 `LCSC3D.*`，可按需重命名（不影响库内容）。
+
 ## 🛠 从源码构建 exe
 
 需要 Python 3.10+（含 tkinter）与 pip：
@@ -95,7 +107,7 @@ build_exe.bat
 或手动执行：
 
 ```bash
-pip install pyinstaller sv_ttk
+pip install pyinstaller sv_ttk olefile
 pyinstaller --onefile --noconsole --clean --name lcsc3d_gui \
   --icon app.ico --add-data "app.ico;." \
   --collect-all sv_ttk --paths . --collect-submodules lcsc3d \
@@ -117,6 +129,7 @@ pyinstaller --onefile --noconsole --clean --name lcsc3d_gui \
 
 - **部分编号下载不了 3D 模型？** 该编号在立创库中没有关联 3D 模型（或为纯定制件），不影响符号/封装/AD 库下载。
 - **提示风控/连接断开？** 程序内置自动重试；同时请避免多开窗口并保持默认请求间隔（1.2s）。
+- **合并库会丢器件吗？** 合并库由本次批次的编号整体重建；如需累积，请把新旧编号一起传入（`-f codes.txt`）。
 - **AD 库转换失败的编号？** 个别器件数据有特殊图元时会给出明确原因，不影响其余三类文件。
 - **支持平台？** Windows 10/11 64 位（AD 库导出依赖 Windows 系统组件）。
 

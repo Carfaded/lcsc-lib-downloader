@@ -9,6 +9,8 @@
   3. PCB 封装   -> {编号}_{封装名}.footprint.json  立创EDA 格式
   4. AD 库      -> {编号}_{器件名}.SchLib + {编号}_{封装名}.PcbLib
                    Altium Designer 原生库(默认内嵌3D模型), AD 中直接打开使用
+                   加 --merge 则批次内所有器件合并为单个 LCSC3D.SchLib + LCSC3D.PcbLib
+                   (封装自动去重, 符号引用最终封装名)
 
 符号/封装 JSON 可在立创EDA(标准版/专业版)中导入使用。
 
@@ -18,6 +20,7 @@
   python lcsc_3d_downloader.py C131443 --types 3d            # 只下3D模型
   python lcsc_3d_downloader.py C131443 --types symbol,footprint
   python lcsc_3d_downloader.py C131443 --types ad            # 只生成AD库(SchLib/PcbLib)
+  python lcsc_3d_downloader.py -f codes.txt --merge --types ad   # AD库合并为单个库文件
   python lcsc_3d_downloader.py -f codes.txt -o D:/step --force
 
 参数:
@@ -27,6 +30,8 @@
   --force            已存在也重新下载
   --delay SEC        接口请求间隔秒数 (默认 1.2, 立创有风控, 不建议调太小)
   --no-verify        跳过 3D 模型的无PCB校验
+  --no-ad-3d         AD库不内嵌3D模型 (默认内嵌)
+  --merge            AD库合并模式: 所有器件合并为单个 LCSC3D.SchLib / LCSC3D.PcbLib
 
 依赖: 仅 Python 标准库 (3.8+)
 """
@@ -312,12 +317,17 @@ def main():
     ap.add_argument("--delay", type=float, default=1.2, help="接口请求间隔秒数(默认1.2)")
     ap.add_argument("--no-verify", action="store_true", help="跳过3D模型无PCB校验")
     ap.add_argument("--no-ad-3d", action="store_true", help="AD库不内嵌3D模型(默认内嵌)")
+    ap.add_argument("--merge", action="store_true",
+                    help="AD库合并模式: 所有器件合并为单个 LCSC3D.SchLib / LCSC3D.PcbLib")
     args = ap.parse_args()
 
     types = parse_types(args.types)
     if not types:
         print("--types 参数无效, 可选: all / 3d / symbol / footprint / ad")
         sys.exit(1)
+    if args.merge and "ad" not in types:
+        types.add("ad")
+        print("提示: --merge 需要 AD库内容, 已自动加入\n")
 
     codes = [c for c in (normalize_code(x) for x in args.codes) if c]
     if args.file:
@@ -340,6 +350,17 @@ def main():
     stats = {"ok": 0, "skip": 0, "fail": 0}
     failed = []
     t0 = time.time()
+
+    # 合并模式: 批次内所有器件的 AD 库最后合并为单个 SchLib/PcbLib
+    merger = None
+    if args.merge:
+        try:
+            from ad_export import AdLibraryMerger
+            merger = AdLibraryMerger(embed_model=not args.no_ad_3d, fetch=http_get_bytes,
+                                     log=lambda m: print(m))
+        except Exception as e:  # noqa: BLE001
+            print(f"! 合并模式不可用, 改为生成单器件库: {e}")
+
     for i, code in enumerate(codes, 1):
         print(f"[{i}/{len(codes)}] {code} ...")
 
@@ -410,30 +431,58 @@ def main():
                                   f"[{fp['elements']}个图元 / {fp['pads']}个焊盘]")
                             stats["ok"] += 1
                 if "ad" in types:
-                    try:
-                        from ad_export import export_altium
-                        adr = export_altium(s_data.get("raw") or {}, code, args.out,
-                                            skip_existing=not args.force,
-                                            embed_model=not args.no_ad_3d,
-                                            fetch=http_get_bytes,
-                                            log=lambda m: print(m))
-                    except Exception as e:  # noqa: BLE001
-                        print(f"    × AD库失败: {e}")
-                        stats["fail"] += 1
-                        failed.append((code, "AD库", str(e)))
-                    else:
-                        if adr["status"] == "skip":
-                            print(f"    - AD库已存在跳过: {os.path.basename(adr['schlib'])}")
-                            stats["skip"] += 1
+                    if merger is not None:
+                        try:
+                            minfo = merger.add(s_data.get("raw") or {}, code)
+                        except Exception as e:  # noqa: BLE001
+                            print(f"    × AD库(合并)失败: {e}")
+                            stats["fail"] += 1
+                            failed.append((code, "AD库", str(e)))
                         else:
-                            print(f"    √ AD库: {os.path.basename(adr['schlib'])} + "
-                                  f"{os.path.basename(adr['pcblib'])}  "
-                                  f"[SchLib {adr['schlib_size'] / 1024:.0f}KB / "
-                                  f"PcbLib {adr['pcblib_size'] / 1024:.0f}KB"
-                                  + ("，含内嵌3D" if adr.get("embedded") else "")
-                                  + "]")
+                            print("    √ AD库: 已加入合并库"
+                                  + ("（含3D）" if minfo.get("embedded") else ""))
                             stats["ok"] += 1
+                    else:
+                        try:
+                            from ad_export import export_altium
+                            adr = export_altium(s_data.get("raw") or {}, code, args.out,
+                                                skip_existing=not args.force,
+                                                embed_model=not args.no_ad_3d,
+                                                fetch=http_get_bytes,
+                                                log=lambda m: print(m))
+                        except Exception as e:  # noqa: BLE001
+                            print(f"    × AD库失败: {e}")
+                            stats["fail"] += 1
+                            failed.append((code, "AD库", str(e)))
+                        else:
+                            if adr["status"] == "skip":
+                                print(f"    - AD库已存在跳过: {os.path.basename(adr['schlib'])}")
+                                stats["skip"] += 1
+                            else:
+                                print(f"    √ AD库: {os.path.basename(adr['schlib'])} + "
+                                      f"{os.path.basename(adr['pcblib'])}  "
+                                      f"[SchLib {adr['schlib_size'] / 1024:.0f}KB / "
+                                      f"PcbLib {adr['pcblib_size'] / 1024:.0f}KB"
+                                      + ("，含内嵌3D" if adr.get("embedded") else "")
+                                      + "]")
+                                stats["ok"] += 1
         time.sleep(args.delay * 0.4)
+
+    # ---- 合并构建 ----
+    if merger is not None and merger.parts:
+        print(f"\n正在构建合并库（{len(merger.parts)} 个器件）...")
+        try:
+            mr = merger.build(args.out)
+        except Exception as e:  # noqa: BLE001
+            print(f"    × 合并库失败: {e}")
+            stats["fail"] += 1
+            failed.append(("-", "合并库", str(e)))
+        else:
+            print(f"    ★ 合并库: {os.path.basename(mr['schlib'])} + {os.path.basename(mr['pcblib'])}"
+                  f"  [{mr['count']} 个器件 / SchLib {mr['schlib_size'] / 1024:.0f}KB / "
+                  f"PcbLib {mr['pcblib_size'] / 1024:.0f}KB]")
+    elif merger is not None:
+        print("! 没有成功加入合并库的器件")
 
     elapsed = time.time() - t0
     print("\n" + "=" * 62)

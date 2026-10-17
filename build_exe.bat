@@ -8,8 +8,8 @@ REM ============================================================
 
 cd /d "%~dp0"
 
-echo [1/3] 安装打包依赖 (pyinstaller / sv_ttk)...
-python -m pip install --upgrade pyinstaller sv_ttk -i https://pypi.tuna.tsinghua.edu.cn/simple
+echo [1/3] 安装打包依赖 (pyinstaller / sv_ttk / olefile)...
+python -m pip install --upgrade pyinstaller sv_ttk olefile -i https://pypi.tuna.tsinghua.edu.cn/simple
 if errorlevel 1 goto :fail
 
 echo.

@@ -432,7 +432,7 @@ class DownloaderApp:
     def _build(self):
         self.root.title(APP_TITLE)
         sw, sh = self.root.winfo_screenwidth(), self.root.winfo_screenheight()
-        w = min(840, sw - 40)
+        w = min(900, sw - 40)
         h = min(760, sh - 90)
         x = max(0, (sw - w) // 2)
         y = max(0, (sh - h) // 3)
@@ -451,13 +451,16 @@ class DownloaderApp:
         # ===== 标题区 =====
         header = ttk.Frame(self.root, padding=(20, 16, 14, 4))
         header.pack(fill="x")
+        header.columnconfigure(0, weight=1)   # 标题占剩余空间，按钮列不被压缩
         hleft = ttk.Frame(header)
-        hleft.pack(side="left", fill="x", expand=True)
+        hleft.grid(row=0, column=0, sticky="w")
         ttk.Label(hleft, text=APP_TITLE, style="Header.TLabel").pack(anchor="w")
-        ttk.Label(hleft, text="3D模型(STEP) · 原理图符号 · PCB封装 · AD库(SchLib/PcbLib)     一键从立创编号 Cxxxxx 下载，3D模型为纯元件不含PCB",
+        ttk.Label(hleft, text="3D模型 · 原理图符号 · PCB封装 · AD库    一键从立创编号下载，3D为纯元件不含PCB",
                   style="SubHeader.TLabel").pack(anchor="w", pady=(4, 2))
-        ttk.Button(header, text="AD 导出指引", command=self._show_ad_help).pack(side="right", anchor="ne", padx=(10, 0), pady=(4, 0))
-        ttk.Button(header, text="手动合并库…", command=self._show_merge_dialog).pack(side="right", anchor="ne", padx=(10, 0), pady=(4, 0))
+        ttk.Button(header, text="合并库…", width=10, command=self._show_merge_dialog).grid(
+            row=0, column=1, sticky="ne", padx=(10, 0), pady=(4, 0))
+        ttk.Button(header, text="AD 导出指引", width=12, command=self._show_ad_help).grid(
+            row=0, column=2, sticky="ne", padx=(8, 0), pady=(4, 0))
 
         # ===== 主体 =====
         body = ttk.Frame(self.root, padding=(14, 12, 14, 12))
@@ -536,11 +539,14 @@ class DownloaderApp:
         card2 = ttk.Labelframe(body, text=" 运行日志 ", padding=(10, 6, 10, 10))
         card2.grid(row=2, column=0, sticky="nsew")
         card2.columnconfigure(0, weight=1)
-        card2.rowconfigure(0, weight=1)
+        card2.rowconfigure(1, weight=1)
+        log_head = ttk.Frame(card2)
+        log_head.grid(row=0, column=0, sticky="e")
+        ttk.Button(log_head, text="清空日志", command=self._clear_log).pack(side="right")
         self.txt_log = scrolledtext.ScrolledText(card2, height=13, wrap="word", state="disabled",
                                                  relief="flat", bd=0, bg="white", fg=C_TEXT,
                                                  font=FONT)
-        self.txt_log.grid(row=0, column=0, sticky="nsew")
+        self.txt_log.grid(row=1, column=0, sticky="nsew")
         self.txt_log.tag_configure("ok", foreground=C_OK)
         self.txt_log.tag_configure("err", foreground=C_ERR)
         self.txt_log.tag_configure("warn", foreground=C_WARN)
@@ -552,6 +558,12 @@ class DownloaderApp:
                      "AD库为 Altium 原生 SchLib/PcbLib，AD 中直接打开使用。\n", "muted")
 
     # ---------- 交互 ----------
+    def _clear_log(self):
+        """清空运行日志（按钮或新一轮下载开始时调用）。"""
+        self.txt_log.config(state="normal")
+        self.txt_log.delete("1.0", "end")
+        self.txt_log.config(state="disabled")
+
     def _show_merge_dialog(self):
         if ad_export is None:
             messagebox.showerror("不可用", "内置转换模块不可用，无法使用库合并功能")
@@ -661,7 +673,8 @@ class DownloaderApp:
             return
         self._set_running(True)
         self.pbar["value"] = 0
-        self._append(f"\n====== 开始下载 {len(codes)} 个编号 -> {outdir} ======\n", "head")
+        self._clear_log()  # 每轮下载从干净日志开始
+        self._append(f"====== 开始下载 {len(codes)} 个编号 -> {outdir} ======\n", "head")
         threading.Thread(target=self._worker,
                          args=(codes, outdir, not self.v_skip.get(), opts, self.v_verify.get()),
                          daemon=True).start()

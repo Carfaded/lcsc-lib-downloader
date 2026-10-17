@@ -457,6 +457,7 @@ class DownloaderApp:
         ttk.Label(hleft, text="3D模型(STEP) · 原理图符号 · PCB封装 · AD库(SchLib/PcbLib)     一键从立创编号 Cxxxxx 下载，3D模型为纯元件不含PCB",
                   style="SubHeader.TLabel").pack(anchor="w", pady=(4, 2))
         ttk.Button(header, text="AD 导出指引", command=self._show_ad_help).pack(side="right", anchor="ne", padx=(10, 0), pady=(4, 0))
+        ttk.Button(header, text="手动合并库…", command=self._show_merge_dialog).pack(side="right", anchor="ne", padx=(10, 0), pady=(4, 0))
 
         # ===== 主体 =====
         body = ttk.Frame(self.root, padding=(14, 12, 14, 12))
@@ -551,6 +552,12 @@ class DownloaderApp:
                      "AD库为 Altium 原生 SchLib/PcbLib，AD 中直接打开使用。\n", "muted")
 
     # ---------- 交互 ----------
+    def _show_merge_dialog(self):
+        if ad_export is None:
+            messagebox.showerror("不可用", "内置转换模块不可用，无法使用库合并功能")
+            return
+        MergeLibrariesDialog(self.root, ad_export, default_dir=self.outdir_var.get())
+
     def _show_ad_help(self):
         msg = (
             "【本工具已内置 AD 库导出】\n"
@@ -566,6 +573,8 @@ class DownloaderApp:
             "  即可查看 3D 立体效果。\n"
             "  多器件合并: 勾选\"AD库合并\"后，本批所有器件合并为一个\n"
             "  LCSC3D.SchLib + LCSC3D.PcbLib（相同封装自动去重）。\n"
+            "  已有库文件: 点右上角\"手动合并库…\"，把多个 .SchLib/.PcbLib\n"
+            "  手动合并为一个（顺序即优先级，重复条目保留靠前者）。\n"
             "\n"
             "【备选渠道】\n"
             "  · LCSC3D 开源工具: 可把多个器件合并为一个库并内嵌 3D\n"
@@ -1018,12 +1027,208 @@ def run_selftest(argv):
         lines.append("MERGE EXCEPTION: " + repr(e))
         checks["ad_merge"] = False
 
+    # 手动合并库 (已有单器件库 + 合并库 -> 单个库文件)
+    try:
+        if ad_export is None:
+            raise RuntimeError("ad_export 模块不可用")
+        out_sch = os.path.join(outdir, "MANUAL_MERGE.SchLib")
+        out_pcb = os.path.join(outdir, "MANUAL_MERGE.PcbLib")
+        rs = ad_export.merge_library_files(
+            [r["schlib"], mr["schlib"]], out_sch, "SCHLIB", log=log)
+        rp = ad_export.merge_library_files(
+            [r["pcblib"], mr["pcblib"]], out_pcb, "PCBLIB", log=log)
+        lines.append(f"MANUAL sch={rs['count']} pcb={rp['count']} "
+                     f"skipped_sch={len(rs['skipped'])} skipped_pcb={len(rp['skipped'])}")
+        checks["manual_merge"] = (rs["count"] == 2 and rp["count"] == 2)
+    except Exception as e:  # noqa: BLE001
+        lines.append("MANUAL EXCEPTION: " + repr(e))
+        checks["manual_merge"] = False
+
     ok = all(checks.values())
     lines.append("checks=" + json.dumps(checks, ensure_ascii=False))
     lines.append("RESULT: " + ("PASS" if ok else "FAIL"))
     with open(os.path.join(BASE_DIR, "selftest_result.txt"), "w", encoding="utf-8") as f:
         f.write("\n".join(lines))
     sys.exit(0 if ok else 1)
+
+
+class MergeLibrariesDialog(tk.Toplevel):
+    """手动合并 AD 库对话框：选择多个已有 .SchLib / .PcbLib 合并为一个文件。"""
+
+    EXT = {"SCHLIB": ".SchLib", "PCBLIB": ".PcbLib"}
+
+    def __init__(self, master, exporter=None, default_dir=None):
+        super().__init__(master)
+        self.exporter = exporter or ad_export
+        self.default_dir = default_dir or os.getcwd()
+        self.files = []
+        self.fmt_var = tk.StringVar(value="SCHLIB")
+        self.out_var = tk.StringVar()
+        self.status_var = tk.StringVar(value="请添加至少两个同类型的库文件")
+        self.title("手动合并 AD 库")
+        self.transient(master)
+        self.minsize(560, 480)
+        self.resizable(True, True)
+        self.protocol("WM_DELETE_WINDOW", self._close)
+        self._build()
+        self.grab_set()
+        self.wait_visibility()
+        self.focus_set()
+
+    # ---------- 布局 ----------
+    def _build(self):
+        body = ttk.Frame(self, padding=14)
+        body.pack(fill="both", expand=True)
+        ttk.Label(body, text="把多个已存在的 AD 库合并为一个：相同封装/条目自动去重，3D 模型随封装保留。",
+                  style="SubHeader.TLabel", wraplength=520).pack(anchor="w")
+
+        frow = ttk.Frame(body)
+        frow.pack(fill="x", pady=(10, 4))
+        ttk.Label(frow, text="库类型：").pack(side="left")
+        ttk.Radiobutton(frow, text="原理图符号库 (.SchLib)", value="SCHLIB",
+                        variable=self.fmt_var, command=self._on_fmt).pack(side="left", padx=(8, 0))
+        ttk.Radiobutton(frow, text="PCB 封装库 (.PcbLib)", value="PCBLIB",
+                        variable=self.fmt_var, command=self._on_fmt).pack(side="left", padx=(16, 0))
+
+        lf = ttk.Labelframe(body, text=" 待合并文件（顺序即优先级，重复条目保留靠前者） ", padding=6)
+        lf.pack(fill="both", expand=True, pady=(4, 0))
+        lf.rowconfigure(0, weight=1)
+        lf.columnconfigure(0, weight=1)
+        lbox = ttk.Frame(lf)
+        lbox.grid(row=0, column=0, columnspan=3, sticky="nsew")
+        lbox.rowconfigure(0, weight=1)
+        lbox.columnconfigure(0, weight=1)
+        self.listbox = tk.Listbox(lbox, height=8, activestyle="none", exportselection=False)
+        self.listbox.grid(row=0, column=0, sticky="nsew")
+        sb = ttk.Scrollbar(lbox, orient="vertical", command=self.listbox.yview)
+        sb.grid(row=0, column=1, sticky="ns")
+        self.listbox["yscrollcommand"] = sb.set
+        btns = ttk.Frame(lf)
+        btns.grid(row=1, column=0, columnspan=3, sticky="w", pady=(6, 0))
+        ttk.Button(btns, text="添加文件…", command=self._add_files).pack(side="left")
+        ttk.Button(btns, text="移除选中", command=self._remove_files).pack(side="left", padx=(8, 0))
+        ttk.Button(btns, text="清空", command=self._clear_files).pack(side="left", padx=(8, 0))
+
+        orow = ttk.Frame(body)
+        orow.pack(fill="x", pady=(10, 0))
+        orow.columnconfigure(1, weight=1)
+        ttk.Label(orow, text="输出到：").grid(row=0, column=0)
+        ttk.Entry(orow, textvariable=self.out_var).grid(row=0, column=1, sticky="ew", padx=(4, 8))
+        ttk.Button(orow, text="浏览…", command=self._choose_out).grid(row=0, column=2)
+
+        ttk.Label(body, textvariable=self.status_var, wraplength=520).pack(anchor="w", pady=(10, 0))
+        brow = ttk.Frame(body)
+        brow.pack(fill="x", pady=(8, 0))
+        self.btn_merge = ttk.Button(brow, text="开始合并", style="Accent.TButton", command=self._merge)
+        self.btn_merge.pack(side="right")
+        ttk.Button(brow, text="关闭", command=self._close).pack(side="right", padx=(0, 8))
+        self.out_var.set(self._default_out())
+
+    # ---------- 交互 ----------
+    def _default_out(self):
+        return os.path.join(self.default_dir, "LCSC3D" + self.EXT[self.fmt_var.get()])
+
+    def _on_fmt(self):
+        if self.files:
+            self.files = []
+            self._refresh()
+            self.status_var.set("已切换库类型，请重新添加文件")
+        self.out_var.set(self._default_out())
+
+    def _refresh(self):
+        self.listbox.delete(0, "end")
+        for i, p in enumerate(self.files, 1):
+            self.listbox.insert("end", f"{i}. {p}")
+        if self.files:
+            self.status_var.set(f"已选 {len(self.files)} 个文件")
+
+    def _add_files(self):
+        ext = self.EXT[self.fmt_var.get()]
+        paths = filedialog.askopenfilenames(
+            title="选择要合并的库文件",
+            initialdir=self.default_dir,
+            filetypes=[(f"AD 库 ({ext})", f"*{ext}"), ("所有文件", "*.*")])
+        if not paths:
+            return
+        added = 0
+        for p in paths:
+            if p not in self.files:
+                self.files.append(p)
+                added += 1
+        if added:
+            self._refresh()
+        if not self.out_var.get():
+            self.out_var.set(os.path.join(os.path.dirname(self.files[0]), "LCSC3D" + ext))
+
+    def _remove_files(self):
+        for i in reversed(self.listbox.curselection()):
+            if 0 <= i < len(self.files):
+                self.files.pop(i)
+        self._refresh()
+
+    def _clear_files(self):
+        self.files = []
+        self._refresh()
+        self.status_var.set("已清空")
+
+    def _choose_out(self):
+        ext = self.EXT[self.fmt_var.get()]
+        initial = self.out_var.get() or self._default_out()
+        path = filedialog.asksaveasfilename(
+            title="选择输出文件",
+            initialfile=os.path.basename(initial),
+            initialdir=os.path.dirname(initial) or self.default_dir,
+            defaultextension=ext,
+            filetypes=[(f"AD 库 ({ext})", f"*{ext}")])
+        if path:
+            self.out_var.set(path)
+
+    def _merge(self):
+        files, out, fmt = list(self.files), self.out_var.get().strip(), self.fmt_var.get()
+        if len(files) < 2:
+            messagebox.showwarning("提示", "请至少添加两个库文件")
+            return
+        if not out:
+            messagebox.showwarning("提示", "请选择输出文件")
+            return
+        if os.path.abspath(out) in {os.path.abspath(f) for f in files}:
+            messagebox.showwarning("提示", "输出文件不能与输入文件相同")
+            return
+        if os.path.exists(out) and not messagebox.askyesno("确认覆盖", f"输出文件已存在，是否覆盖？\n{out}"):
+            return
+        self.btn_merge.config(state="disabled", text="合并中…")
+        self.status_var.set("正在合并，请稍候…")
+        self.config(cursor="watch")
+        self.update_idletasks()
+        try:
+            result = self.exporter.merge_library_files(
+                files, out, fmt, log=lambda m: self.status_var.set(m))
+        except Exception as e:  # noqa: BLE001
+            messagebox.showerror("合并失败", str(e))
+            self.status_var.set(f"合并失败：{e}")
+        else:
+            names = ", ".join(result["names"][:6]) + ("…" if len(result["names"]) > 6 else "")
+            skip_note = ""
+            if result["skipped"]:
+                skipped = ", ".join(n for _, n in result["skipped"][:5])
+                skip_note = (f"\n跳过 {len(result['skipped'])} 个（重复/同名）：{skipped}"
+                             + ("…" if len(result["skipped"]) > 5 else ""))
+            messagebox.showinfo(
+                "合并完成",
+                f"已合并 {len(files)} 个库文件 → {result['count']} 个条目"
+                f"（{result['size'] / 1024:.0f} KB，{result['format']}）\n\n"
+                f"{names}{skip_note}\n\n输出: {out}")
+            self.status_var.set(f"完成: {result['count']} 个条目 → {out}")
+        finally:
+            self.config(cursor="")
+            self.btn_merge.config(state="normal", text="开始合并")
+
+    def _close(self):
+        try:
+            self.grab_release()
+        except Exception:  # noqa: BLE001
+            pass
+        self.destroy()
 
 
 def main():

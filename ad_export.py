@@ -344,3 +344,94 @@ class AdLibraryMerger:
         return {'schlib': schlib_path, 'pcblib': pcblib_path, 'count': len(self.parts),
                 'schlib_size': len(schlib_bytes), 'pcblib_size': len(pcblib_bytes),
                 'footprint_names': footprint_names}
+
+
+def _fmt_for(path):
+    ext = os.path.splitext(str(path))[1].lower()
+    return {'schlib': 'SCHLIB', 'pcblib': 'PCBLIB'}.get(ext.lstrip('.'), '')
+
+
+def merge_library_files(paths, out_path, fmt=None, check_cancelled=None, log=None):
+    """把多个已存在的 .SchLib（或 .PcbLib）手动合并为一个库文件。
+
+    · 文件顺序即优先级：完全重复 / 同名的条目保留靠前者（与 AD 库语义一致）；
+    · PCBLIB 按内容去重（相同封装只保留一份，模型表自动合并）；
+    · SCHLIB 同名条目跳过（不覆盖已有条目）；
+    · 输出写入采用临时文件 + 原子替换，失败不会破坏原文件。
+
+    paths:          输入文件路径列表（至少 2 个）。
+    out_path:       输出文件路径（扩展名需为 .SchLib / .PcbLib）。
+    fmt:            可选 'SCHLIB' / 'PCBLIB'；默认按文件扩展名推断。
+    check_cancelled: 可选回调；每阶段调用一次。
+    log:            可选日志回调 log(message)。
+
+    返回 dict: {path, format, size, count, names, added, skipped}
+    skipped 为 [(来源文件, 条目名)]，含重复/同名所致未加入的条目。
+    """
+    if sys.platform != 'win32':
+        raise AdExportError('AD 库合并依赖 Windows 组件（ole32）')
+    note = log or (lambda message: None)
+    check = check_cancelled or (lambda: None)
+    paths = [os.fspath(p) for p in (paths or []) if p]
+    if len(paths) < 2:
+        raise AdExportError('至少需要选择两个库文件才能合并')
+
+    fmt = (fmt or '').upper()
+    if fmt not in ('SCHLIB', 'PCBLIB'):
+        exts = {_fmt_for(p) for p in paths}
+        if len(exts) != 1 or '' in exts:
+            raise AdExportError('所选文件格式不一致（需全部为 .SchLib 或全部为 .PcbLib）')
+        fmt = exts.pop()
+    else:
+        bad = [os.path.basename(p) for p in paths if _fmt_for(p) != fmt]
+        if bad:
+            raise AdExportError('所选文件与格式不符：' + '、'.join(bad[:3]))
+    out_fmt = _fmt_for(out_path)
+    if out_fmt != fmt:
+        raise AdExportError('输出文件扩展名需与格式一致（.SchLib / .PcbLib）')
+
+    try:
+        import olefile  # noqa: F401  合并功能需要
+    except ImportError as exc:
+        raise AdExportError('合并库功能需要 olefile 库，请先安装：pip install olefile') from exc
+
+    from lcsc3d.eda.library_merge import LibraryIndex, append_library, read_library
+    from lcsc3d.core.errors import DownloadError
+
+    note(f'读取基准库: {os.path.basename(paths[0])}')
+    merged = read_library(paths[0], fmt)
+    base_index = LibraryIndex(merged, fmt)
+    base_names = {name.casefold() for name in base_index.names}
+    base_index.ole.close()
+
+    skipped = []
+    for index, path in enumerate(paths[1:], 2):
+        check()
+        note(f'合并 [{index}/{len(paths)}]: {os.path.basename(path)}')
+        try:
+            payload = read_library(path, fmt)
+            before = len(merged)
+            merged, skip = append_library(merged, payload, fmt, check)
+        except DownloadError as exc:
+            raise AdExportError(f'{os.path.basename(path)} 合并失败：{exc}') from exc
+        for name in skip:
+            skipped.append((os.path.basename(path), name))
+        if len(merged) < before:
+            raise AdExportError('合并结果异常（体积缩小），已中止')
+
+    check()
+    final_index = LibraryIndex(merged, fmt)
+    names = list(final_index.names)
+    final_index.ole.close()
+    added = [name for name in names if name.casefold() not in base_names]
+
+    out_dir = os.path.dirname(os.path.abspath(out_path))
+    os.makedirs(out_dir, exist_ok=True)
+    tmp_path = out_path + '.tmp'
+    with open(tmp_path, 'wb') as f:
+        f.write(merged)
+    os.replace(tmp_path, out_path)
+
+    return {'path': out_path, 'format': fmt, 'size': len(merged),
+            'count': len(names), 'names': names, 'added': added, 'skipped': skipped}
+

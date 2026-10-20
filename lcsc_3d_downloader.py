@@ -137,46 +137,129 @@ def safe_name(s):
     return re.sub(r'[\\/:*?"<>|]', "_", str(s)).strip() or "unnamed"
 
 
+def _svgnode_uuid(pkg_detail):
+    """从标准版封装数据(SVGNODE)提取 3D 模型资源编号。
+
+    该编号与专业版链路 dataStr.model 为同一个值, 可直连 CDN 取 STEP。
+    """
+    try:
+        doc = pkg_detail.get("dataStr") if isinstance(pkg_detail, dict) else None
+        if isinstance(doc, str):
+            doc = json.loads(doc)
+        for shape in (doc or {}).get("shape") or []:
+            if not (isinstance(shape, str) and shape.startswith("SVGNODE~")):
+                continue
+            attrs = (json.loads(shape.partition("~")[2]) or {}).get("attrs") or {}
+            if attrs.get("c_etype") in (None, "outline3D") and attrs.get("uuid"):
+                return attrs["uuid"]
+    except (ValueError, TypeError, AttributeError):
+        pass
+    return None
+
+
+def _same_model(code, item):
+    """搜索结果是否为该编号的换号同型号。
+
+    仅在数字部分完全相等时成立, 避免 C8299 误配到 C82993 这类风险。
+    """
+    digits = re.sub(r"\D", "", str(code or ""))
+    if not digits:
+        return False
+    return digits == re.sub(r"\D", "", str(item.get("model") or ""))
+
+
+def _fetch_3d_by_std(code, outdir, force, alt_codes=()):
+    """回退路径: 用标准版封装资源里的 3D 编号直连 CDN 下载 STEP。
+
+    按顺序尝试目标编号与候选新编号(立创改号时旧号仍保留封装数据)。
+    """
+    last = ""
+    for target in (code, *alt_codes):
+        if not target or (target == code and last):
+            continue
+        try:
+            data = api_get_json(HOST_STD, f"/api/products/{urllib.parse.quote(target)}/components")
+        except Exception as e:  # noqa: BLE001
+            last = f"标准版接口异常({type(e).__name__})"
+            continue
+        if not data.get("success") or data.get("code") != 0:
+            last = data.get("message") or "标准版接口无该编号数据"
+            continue
+        res = data.get("result") or {}
+        pkg = res.get("packageDetail") or {}
+        uuid = _svgnode_uuid(pkg)
+        if not uuid:
+            last = "标准版封装数据中无 3D 模型"
+            continue
+        footprint = pkg.get("title") or "Footprint"
+        fpath = os.path.join(outdir, f"{code}_{safe_name(footprint)}.step")
+        if os.path.exists(fpath) and not force:
+            return "skip", fpath, footprint
+        raw = http_get_bytes(CDN_3D + uuid)
+        if not raw.lstrip().startswith(b"ISO-10303"):
+            last = f"回退下载内容不是STEP({len(raw)}B)"
+            continue
+        with open(fpath, "wb") as f:
+            f.write(raw)
+        return "ok", fpath, footprint
+    return "fail", last, ""
+
+
 def fetch_3d(code, outdir, delay, force):
-    """3D 模型 STEP。返回 (状态, 文件路径或原因, 型号)"""
-    d1 = api_post(HOST_PRO, "/api/eda/product/search", {
-        "keyword": code, "needAggs": "true",
-        "url": "/api/eda/product/list", "currPage": "1", "pageSize": "10",
-    })
+    """3D 模型 STEP。返回 (状态, 文件路径或原因, 型号)
+
+    优先走专业版器件链路; 任一环节拿不到模型时自动回退:
+      1) 编号被更换时, 用搜索到的同型号新编号重试;
+      2) 标准版封装资源里的 3D 编号直连 CDN (与专业版同源)。
+    """
+    try:
+        d1 = api_post(HOST_PRO, "/api/eda/product/search", {
+            "keyword": code, "needAggs": "true",
+            "url": "/api/eda/product/list", "currPage": "1", "pageSize": "10",
+        })
+    except Exception as e:  # noqa: BLE001
+        return "fail", f"接口请求失败({type(e).__name__})", ""
     plist = (d1.get("result") or {}).get("productList") or []
     item = next((x for x in plist if str(x.get("code", "")).upper() == code), None)
+    renamed = ""
     if item is None:
-        return "fail", "未找到该编号的商品", ""
+        # 编号被更换时用同型号新编号继续(仅数字部分完全一致才采纳, 避免拿到别的器件)
+        alt = next((x for x in plist if _same_model(code, x)), None)
+        if alt is not None:
+            item = alt
+            renamed = str(alt.get("code") or "")
+    if item is None:
+        return _fallback_3d(code, outdir, force, "专业版未找到该编号的商品", renamed)
     model_name = item.get("model") or ""
     std = item.get("standard") or ""
     time.sleep(delay)
 
     has_device = item.get("hasDevice")
     if not has_device:
-        return "fail", f"{model_name} 无关联EDA器件(无3D模型)", model_name
+        return _fallback_3d(code, outdir, force, f"{model_name} 无关联EDA器件", renamed)
     d2 = api_post(HOST_PRO, "/api/devices/searchByIds", {"uuids[]": has_device, "path": outdir})
     r2 = (d2.get("result") or [])
     if not r2:
-        return "fail", "器件查询失败", model_name
+        return _fallback_3d(code, outdir, force, "器件查询失败", renamed)
     attrs = r2[0].get("attributes") or {}
     model_uuid = attrs.get("3D Model")
     footprint = attrs.get("Supplier Footprint") or std
     if not model_uuid:
-        return "fail", f"{model_name} 该器件无3D模型", model_name
+        return _fallback_3d(code, outdir, force, f"{model_name} 该器件无3D模型", renamed)
     time.sleep(delay)
 
     d3 = api_post(HOST_PRO, "/api/components/searchByIds?forceOnline=1",
                   {"uuids[]": model_uuid, "dataStr": "yes", "path": outdir})
     r3 = (d3.get("result") or [])
     if not r3:
-        return "fail", "3D模型信息查询失败", model_name
+        return _fallback_3d(code, outdir, force, "3D模型信息查询失败", renamed)
     try:
         data_str = json.loads(r3[0].get("dataStr") or "{}")
     except json.JSONDecodeError:
-        return "fail", "3D模型数据解析失败", model_name
+        return _fallback_3d(code, outdir, force, "3D模型数据解析失败", renamed)
     model_file = data_str.get("model")
     if not model_file:
-        return "fail", "3D模型文件名为空", model_name
+        return _fallback_3d(code, outdir, force, "3D模型文件名为空", renamed)
 
     fpath = os.path.join(outdir, f"{code}_{safe_name(footprint)}.step")
     if os.path.exists(fpath) and not force:
@@ -184,10 +267,24 @@ def fetch_3d(code, outdir, delay, force):
     raw = http_get_bytes(CDN_3D + model_file)
     if not raw.lstrip().startswith(b"ISO-10303"):
         preview = raw[:80].decode("utf-8", "ignore").replace("\n", " ")
-        return "fail", f"返回内容不是STEP({len(raw)}B): {preview}", model_name
+        return _fallback_3d(code, outdir, force,
+                            f"专业版返回非STEP({len(raw)}B): {preview}", renamed)
     with open(fpath, "wb") as f:
         f.write(raw)
     return "ok", fpath, model_name
+
+
+def _fallback_3d(code, outdir, force, reason, renamed=""):
+    """专业版链路失败 -> 回退标准版 3D 资源; 仍失败则返回明确原因。"""
+    if renamed:
+        reason = f"{reason} (编号已变更为 {renamed})"
+    print(f"      · 专业版链路不可用({reason})，改用标准版 3D 资源")
+    status, path, name = _fetch_3d_by_std(code, outdir, force,
+                                           (renamed,) if renamed else ())
+    if status == "fail":
+        print(f"      · 标准版回退也失败: {path}")
+        return "fail", f"{reason}; 标准版回退失败({path})", name
+    return status, path, name
 
 
 def fetch_std_data(code):
